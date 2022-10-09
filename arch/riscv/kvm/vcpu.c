@@ -625,18 +625,58 @@ static void kvm_riscv_update_hvip(struct kvm_vcpu *vcpu)
  */
 static void noinstr kvm_riscv_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 {
+	void *nshmem;
 	struct kvm_cpu_context *gcntx = &vcpu->arch.guest_context;
 	struct kvm_cpu_context *hcntx = &vcpu->arch.host_context;
 
 	guest_state_enter_irqoff();
 
-	hcntx->hstatus = nacl_csr_swap(CSR_HSTATUS, gcntx->hstatus);
+	if (kvm_riscv_nacl_sync_sret_available()) {
+		nshmem = nacl_shmem();
 
-	nacl_sync_csr(-1UL);
+		if (kvm_riscv_nacl_autoswap_csr_available()) {
+			hcntx->hstatus =
+				nacl_shmem_csr_read(nshmem, CSR_HSTATUS);
+			nacl_shmem_scratch_write_long(nshmem,
+					SBI_NACL_SHMEM_AUTOSWAP_OFFSET +
+					SBI_NACL_SHMEM_AUTOSWAP_HSTATUS,
+					gcntx->hstatus);
+			nacl_shmem_scratch_write_long(nshmem,
+					SBI_NACL_SHMEM_AUTOSWAP_OFFSET,
+					SBI_NACL_SHMEM_AUTOSWAP_FLAG_HSTATUS);
+		} else if (kvm_riscv_nacl_sync_csr_available()) {
+			hcntx->hstatus = nacl_shmem_csr_swap(nshmem,
+						CSR_HSTATUS, gcntx->hstatus);
+		} else {
+			hcntx->hstatus = csr_swap(CSR_HSTATUS, gcntx->hstatus);
+		}
 
-	__kvm_riscv_switch_to(&vcpu->arch);
+		nacl_shmem_scratch_write_longs(nshmem,
+					SBI_NACL_SHMEM_SRET_OFFSET +
+					SBI_NACL_SHMEM_SRET_X(1),
+					&gcntx->ra,
+					SBI_NACL_SHMEM_SRET_X_LAST);
 
-	gcntx->hstatus = csr_swap(CSR_HSTATUS, hcntx->hstatus);
+		__kvm_riscv_nacl_switch_to(&vcpu->arch, SBI_EXT_NACL,
+					   SBI_EXT_NACL_SYNC_SRET);
+
+		if (kvm_riscv_nacl_autoswap_csr_available()) {
+			nacl_shmem_scratch_write_long(nshmem,
+					SBI_NACL_SHMEM_AUTOSWAP_OFFSET,
+					0);
+			gcntx->hstatus = nacl_shmem_scratch_read_long(nshmem,
+					SBI_NACL_SHMEM_AUTOSWAP_OFFSET +
+					SBI_NACL_SHMEM_AUTOSWAP_HSTATUS);
+		} else {
+			gcntx->hstatus = csr_swap(CSR_HSTATUS, hcntx->hstatus);
+		}
+	} else {
+		hcntx->hstatus = csr_swap(CSR_HSTATUS, gcntx->hstatus);
+
+		__kvm_riscv_switch_to(&vcpu->arch);
+
+		gcntx->hstatus = csr_swap(CSR_HSTATUS, hcntx->hstatus);
+	}
 
 	vcpu->arch.last_exit_cpu = vcpu->cpu;
 	guest_state_exit_irqoff();
