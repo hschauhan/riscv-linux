@@ -971,6 +971,18 @@ int __weak cpc_write_ffh(int cpunum, struct cpc_reg *reg, u64 val)
 	return -ENOTSUPP;
 }
 
+/**
+ * cpc_ffh_transition_latency() - Get FFH specific transition latency
+ *
+ * Returns transtion latency for the performance state change
+ *
+ * Return: Transition latency in nano seconds
+ */
+int __weak cpc_ffh_transition_latency(int cpunum, u32 *val)
+{
+	return -ENOTSUPP;
+}
+
 /*
  * Since cpc_read and cpc_write are called while holding pcc_lock, it should be
  * as fast as possible. We have already mapped the PCC subspace during init, so
@@ -1742,10 +1754,16 @@ unsigned int cppc_get_transition_latency(int cpu_num)
 		return CPUFREQ_ETERNAL;
 
 	desired_reg = &cpc_desc->cpc_regs[DESIRED_PERF];
-	if (CPC_IN_SYSTEM_MEMORY(desired_reg) || CPC_IN_SYSTEM_IO(desired_reg))
+	if (CPC_IN_SYSTEM_MEMORY(desired_reg) || CPC_IN_SYSTEM_IO(desired_reg)) {
 		return 0;
-	else if (!CPC_IN_PCC(desired_reg))
+	} else if (desired_reg->cpc_entry.reg.space_id == ACPI_ADR_SPACE_FIXED_HARDWARE) {
+		if (!cpc_ffh_transition_latency(cpu_num, &latency_ns))
+			return latency_ns;
+		else
+			return 0;
+	} else if (!CPC_IN_PCC(desired_reg)) {
 		return CPUFREQ_ETERNAL;
+	}
 
 	if (pcc_ss_id < 0)
 		return CPUFREQ_ETERNAL;
