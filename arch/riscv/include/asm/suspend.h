@@ -55,4 +55,11 @@ int hibernate_resume_nonboot_cpu_disable(void);
 asmlinkage void hibernate_restore_image(unsigned long resume_satp, unsigned long satp_temp,
 					unsigned long cpu_resume);
 asmlinkage int hibernate_core_restore_code(void);
+
+/* Check whether state is a valid SBI suspend state */
+bool sbi_suspend_state_is_valid(u32 state);
+
+/* Low level SBI suspend function */
+int sbi_suspend(u32 state);
+
 #endif
