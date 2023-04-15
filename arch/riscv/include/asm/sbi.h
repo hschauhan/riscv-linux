@@ -33,6 +33,7 @@ enum sbi_ext_id {
 	SBI_EXT_PMU = 0x504D55,
 	SBI_EXT_DBCN = 0x4442434E,
 	SBI_EXT_NACL = 0x4E41434C,
+	SBI_EXT_CPPC = 0x43505043,
 
 	/* Experimentals extensions must lie within this range */
 	SBI_EXT_EXPERIMENTAL_START = 0x08000000,
@@ -357,6 +358,20 @@ enum sbi_ext_nacl_feature {
 #define SBI_NACL_SHMEM_SRET_X(__i)		((__riscv_xlen / 8) * (__i))
 #define SBI_NACL_SHMEM_SRET_X_LAST		31
 
+#define SBI_CPPC_PROBE			0x0
+#define SBI_CPPC_READ			0x1
+#define SBI_CPPC_READ_HI		0x2
+#define SBI_CPPC_WRITE			0x3
+
+#define FFH_CPPC_TYPE(r)		(((r) & GENMASK(63, 60)) >> 60)
+#define FFH_CPPC_SBI_REG(r)		((r) & GENMASK(31, 0))
+#define FFH_CPPC_CSR_NUM(r)		((r) & GENMASK(11, 0))
+
+#define FFH_CPPC_SBI			0x0
+#define FFH_CPPC_CSR			0x1
+
+#define FFH_CPPC_SBI_TRANS_LATENCY	0x80000000
+
 #define SBI_SPEC_VERSION_DEFAULT	0x1
 #define SBI_SPEC_VERSION_MAJOR_SHIFT	24
 #define SBI_SPEC_VERSION_MAJOR_MASK	0x7f
@@ -465,5 +480,14 @@ void sbi_ipi_init(void);
 #else
 static inline void sbi_ipi_init(void) { }
 #endif
+
+struct sbi_cppc_data {
+	u64 val;
+	u32 reg;
+	struct sbiret ret;
+};
+
+void sbi_cppc_read(void *read_data);
+void sbi_cppc_write(void *write_data);
 
 #endif /* _ASM_RISCV_SBI_H */
