@@ -520,6 +520,23 @@ static void sbi_srst_power_off(void)
 		       SBI_SRST_RESET_REASON_NONE);
 }
 
+void sbi_cppc_read(void *read_data)
+{
+	struct sbi_cppc_data *data = (struct sbi_cppc_data *) read_data;
+
+	data->ret = sbi_ecall(SBI_EXT_CPPC, SBI_CPPC_READ,
+			      data->reg, 0, 0, 0, 0, 0);
+}
+
+void sbi_cppc_write(void *write_data)
+{
+	struct sbi_cppc_data *data = (struct sbi_cppc_data *) write_data;
+
+	data->ret = sbi_ecall(SBI_EXT_CPPC, SBI_CPPC_WRITE,
+			      data->reg, data->val, 0, 0, 0, 0);
+
+}
+
 /**
  * sbi_probe_extension() - Check if an SBI extension ID is supported or not.
  * @extid: The extension ID to be probed.

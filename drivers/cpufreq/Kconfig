@@ -313,4 +313,9 @@ config QORIQ_CPUFREQ
 	  which are capable of changing the CPU's frequency dynamically.
 
 endif
+
+if RISCV
+source "drivers/cpufreq/Kconfig.riscv"
+endif
+
 endmenu
