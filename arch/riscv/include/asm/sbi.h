@@ -118,11 +118,12 @@ enum sbi_srst_reset_reason {
 
 enum sbi_ext_dbtr_fid {
 	SBI_EXT_DBTR_NUM_TRIGGERS = 0,
+	SBI_EXT_DBTR_SETUP_SHMEM,
 	SBI_EXT_DBTR_TRIGGER_READ,
 	SBI_EXT_DBTR_TRIGGER_INSTALL,
+	SBI_EXT_DBTR_TRIGGER_UPDATE,
 	SBI_EXT_DBTR_TRIGGER_UNINSTALL,
 	SBI_EXT_DBTR_TRIGGER_ENABLE,
-	SBI_EXT_DBTR_TRIGGER_UPDATE,
 	SBI_EXT_DBTR_TRIGGER_DISABLE,
 };
 
@@ -135,6 +136,11 @@ struct sbi_dbtr_data_msg {
 
 struct sbi_dbtr_id_msg {
 	unsigned long idx;
+};
+
+struct sbi_dbtr_shmem_entry {
+        struct sbi_dbtr_data_msg data;
+        struct sbi_dbtr_id_msg id;
 };
 
 enum sbi_ext_pmu_fid {

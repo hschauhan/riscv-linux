@@ -14,13 +14,64 @@ static DEFINE_PER_CPU(struct perf_event *, bp_per_reg[HBP_NUM_MAX]);
 static DEFINE_PER_CPU(unsigned long, msg_lock_flags);
 static DEFINE_PER_CPU(raw_spinlock_t, msg_lock);
 
-static struct sbi_dbtr_data_msg __percpu *sbi_xmit;
-static struct sbi_dbtr_id_msg __percpu *sbi_recv;
+static struct sbi_dbtr_shmem_entry __percpu *sbi_dbtr_shmem;
 
 /* number of debug triggers on this cpu . */
 static int dbtr_total_num __ro_after_init;
 static int dbtr_type __ro_after_init;
 static int dbtr_init __ro_after_init;
+
+#if __riscv_xlen == 64
+#define MEM_HI(_m)	(((u64)_m) >> 32)
+#define MEM_LO(_m)	(((u64)_m) & 0xFFFFFFFFUL)
+#elif __riscv_xlen == 32
+#define MEM_HI(_m)	((((u64)_m) >> 32) & 0x3)
+#define MEM_LO(_m)	(((u64)_m) & 0xFFFFFFFFUL)
+#else
+#error "Unknown __riscv_xlen"
+#endif
+
+static int arch_hw_setup_sbi_shmem(void)
+{
+	struct sbi_dbtr_shmem_entry *dbtr_shmem = this_cpu_ptr(sbi_dbtr_shmem);
+	unsigned long shmem_pa = __pa(dbtr_shmem);
+	int rc = 0;
+	struct sbiret ret;
+
+	ret = sbi_ecall(SBI_EXT_DBTR, SBI_EXT_DBTR_SETUP_SHMEM,
+			(!MEM_LO(shmem_pa) ? 0xFFFFFFFFUL : MEM_LO(shmem_pa)),
+			(!MEM_HI(shmem_pa) ? 0xFFFFFFFFUL : MEM_HI(shmem_pa)),
+			 0, 0, 0, 0);
+
+	if (ret.error) {
+		switch(ret.error) {
+		case SBI_ERR_DENIED:
+			pr_warn("%s: Access denied for shared memory at %lx\n",
+				__func__, shmem_pa);
+			rc = -EPERM;
+			break;
+
+		case SBI_ERR_INVALID_PARAM:
+		case SBI_ERR_INVALID_ADDRESS:
+			pr_warn("%s: Invalid address parameter (%lu)\n",
+				__func__, ret.error);
+			rc = -EINVAL;
+			break;
+
+		case SBI_ERR_ALREADY_AVAILABLE:
+			pr_warn("%s: Shared memory is already set\n",
+				__func__);
+			rc = -EADDRINUSE;
+			break;
+
+		default:
+			pr_warn("%s: Unknown error %lu\n", __func__, ret.error);
+			break;
+		}
+	}
+
+	return rc;
+}
 
 void arch_hw_breakpoint_init_sbi(void)
 {
@@ -320,8 +371,9 @@ int hw_breakpoint_exceptions_notify(struct notifier_block *unused,
 int arch_install_hw_breakpoint(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
-	struct sbi_dbtr_data_msg *xmit = this_cpu_ptr(sbi_xmit);
-	struct sbi_dbtr_id_msg *recv = this_cpu_ptr(sbi_recv);
+	struct sbi_dbtr_shmem_entry *shmem = this_cpu_ptr(sbi_dbtr_shmem);
+	struct sbi_dbtr_data_msg *xmit;
+	struct sbi_dbtr_id_msg *recv;
 	struct perf_event **slot;
 	unsigned long idx;
 	struct sbiret ret;
@@ -330,13 +382,15 @@ int arch_install_hw_breakpoint(struct perf_event *bp)
 	raw_spin_lock_irqsave(this_cpu_ptr(&msg_lock),
 			  *this_cpu_ptr(&msg_lock_flags));
 
+	xmit = &shmem->data;
+	recv = &shmem->id;
 	xmit->tdata1 = cpu_to_lle(info->trig_data1);
 	xmit->tdata2 = cpu_to_lle(info->trig_data2);
 	xmit->tdata3 = cpu_to_lle(info->trig_data3);
 
 	ret = sbi_ecall(SBI_EXT_DBTR, SBI_EXT_DBTR_TRIGGER_INSTALL,
-			1, __pa(xmit) >> 4, __pa(recv) >> 4,
-			0, 0, 0);
+			1, 0, 0, 0, 0, 0);
+
 	if (ret.error) {
 		pr_warn("%s: failed to install trigger\n", __func__);
 		err = -EIO;
@@ -421,7 +475,8 @@ EXPORT_SYMBOL_GPL(arch_enable_hw_breakpoint);
 void arch_update_hw_breakpoint(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
-	struct sbi_dbtr_data_msg *xmit = this_cpu_ptr(sbi_xmit);
+	struct sbi_dbtr_shmem_entry *shmem = this_cpu_ptr(sbi_dbtr_shmem);
+	struct sbi_dbtr_data_msg *xmit;
 	struct perf_event **slot;
 	struct sbiret ret;
 	int i;
@@ -441,13 +496,13 @@ void arch_update_hw_breakpoint(struct perf_event *bp)
 	raw_spin_lock_irqsave(this_cpu_ptr(&msg_lock),
 			  *this_cpu_ptr(&msg_lock_flags));
 
+	xmit = &shmem->data;
 	xmit->tdata1 = cpu_to_lle(info->trig_data1);
 	xmit->tdata2 = cpu_to_lle(info->trig_data2);
 	xmit->tdata3 = cpu_to_lle(info->trig_data3);
 
 	ret = sbi_ecall(SBI_EXT_DBTR, SBI_EXT_DBTR_TRIGGER_UPDATE,
-			i, 1, __pa(xmit) >> 4,
-			0, 0, 0);
+			i, 1, 0, 0, 0, 0);
 	if (ret.error)
 		pr_warn("%s: failed to update trigger %d\n", __func__, i);
 
@@ -514,18 +569,7 @@ void flush_ptrace_hw_breakpoint(struct task_struct *tsk)
 static int __init arch_hw_breakpoint_init(void)
 {
 	unsigned int cpu;
-
-	sbi_xmit = __alloc_percpu(sizeof(*sbi_xmit), SZ_16);
-	if (!sbi_xmit) {
-		pr_warn("failed to allocate SBI xmit message buffer\n");
-		return -ENOMEM;
-	}
-
-	sbi_recv = __alloc_percpu(sizeof(*sbi_recv), SZ_16);
-	if (!sbi_recv) {
-		pr_warn("failed to allocate SBI recv message buffer\n");
-		return -ENOMEM;
-	}
+	int rc = 0;
 
 	for_each_possible_cpu(cpu)
 		raw_spin_lock_init(&per_cpu(msg_lock, cpu));
@@ -536,9 +580,25 @@ static int __init arch_hw_breakpoint_init(void)
 	if (dbtr_total_num)
 		pr_info("%s: total number of type %d triggers: %u\n",
 			__func__, dbtr_type, dbtr_total_num);
-	else
+	else {
 		pr_info("%s: no hardware triggers available\n", __func__);
+		goto out;
+	}
 
-	return 0;
+	sbi_dbtr_shmem = __alloc_percpu(sizeof(*sbi_dbtr_shmem), dbtr_total_num);
+	if (!sbi_dbtr_shmem) {
+		pr_warn("failed to allocate SBI shared memory\n");
+		rc = -ENOMEM;
+		goto out;
+	}
+
+	if (!(rc = arch_hw_setup_sbi_shmem())) {
+		pr_warn("%s: failed to register share memory with SBI\n",
+			__func__);
+		free_percpu(sbi_dbtr_shmem);
+	}
+
+ out:
+	return rc;
 }
 arch_initcall(arch_hw_breakpoint_init);
