@@ -5,6 +5,7 @@
 #include <linux/spinlock.h>
 #include <linux/percpu.h>
 #include <linux/kdebug.h>
+#include <linux/bitops.h>
 
 #include <asm/sbi.h>
 
@@ -23,7 +24,7 @@ static int dbtr_init __ro_after_init;
 
 void arch_hw_breakpoint_init_sbi(void)
 {
-	union riscv_dbtr_tdata1 tdata1;
+	unsigned long tdata1;
 	struct sbiret ret;
 
 	if (sbi_probe_extension(SBI_EXT_DBTR) <= 0) {
@@ -40,11 +41,11 @@ void arch_hw_breakpoint_init_sbi(void)
 		goto done;
 	}
 
-	tdata1.value = 0;
-	tdata1.type = RISCV_DBTR_TRIG_MCONTROL6;
+	tdata1 = 0;
+	RV_DBTR_SET_TDATA1_TYPE(tdata1, RISCV_DBTR_TRIG_MCONTROL6);
 
 	ret = sbi_ecall(SBI_EXT_DBTR, SBI_EXT_DBTR_NUM_TRIGGERS,
-			tdata1.value, 0, 0, 0, 0, 0);
+			tdata1, 0, 0, 0, 0, 0);
 	if (ret.error) {
 		pr_warn("%s: failed to detect mcontrol6 triggers\n", __func__);
 	} else if (!ret.value) {
@@ -58,11 +59,11 @@ void arch_hw_breakpoint_init_sbi(void)
 
 	/* fallback to type 2 triggers if type 6 is not available */
 
-	tdata1.value = 0;
-	tdata1.type = RISCV_DBTR_TRIG_MCONTROL;
+	tdata1 = 0;
+	RV_DBTR_SET_TDATA1_TYPE(tdata1, RISCV_DBTR_TRIG_MCONTROL);
 
 	ret = sbi_ecall(SBI_EXT_DBTR, SBI_EXT_DBTR_NUM_TRIGGERS,
-			tdata1.value, 0, 0, 0, 0, 0);
+			tdata1, 0, 0, 0, 0, 0);
 	if (ret.error) {
 		pr_warn("%s: failed to detect mcontrol triggers\n", __func__);
 	} else if (!ret.value) {
@@ -108,20 +109,20 @@ int arch_build_type2_trigger(const struct perf_event_attr *attr,
 	switch (attr->bp_type) {
 	case HW_BREAKPOINT_X:
 		hw->type = RISCV_DBTR_BREAKPOINT;
-		hw->trig_data1.mcontrol.execute = 1;
+		RV_DBTR_SET_MC_EXEC(hw->trig_data1);
 		break;
 	case HW_BREAKPOINT_R:
 		hw->type = RISCV_DBTR_WATCHPOINT;
-		hw->trig_data1.mcontrol.load = 1;
+		RV_DBTR_SET_MC_LOAD(hw->trig_data1);
 		break;
 	case HW_BREAKPOINT_W:
 		hw->type = RISCV_DBTR_WATCHPOINT;
-		hw->trig_data1.mcontrol.store = 1;
+		RV_DBTR_SET_MC_STORE(hw->trig_data1);
 		break;
 	case HW_BREAKPOINT_RW:
 		hw->type = RISCV_DBTR_WATCHPOINT;
-		hw->trig_data1.mcontrol.store = 1;
-		hw->trig_data1.mcontrol.load = 1;
+		RV_DBTR_SET_MC_LOAD(hw->trig_data1);
+		RV_DBTR_SET_MC_STORE(hw->trig_data1);
 		break;
 	default:
 		return -EINVAL;
@@ -131,38 +132,39 @@ int arch_build_type2_trigger(const struct perf_event_attr *attr,
 	switch (attr->bp_len) {
 	case HW_BREAKPOINT_LEN_1:
 		hw->len = 1;
-		hw->trig_data1.mcontrol.sizelo = 1;
+		RV_DBTR_SET_MC_SIZELO(hw->trig_data1, 1);
 		break;
 	case HW_BREAKPOINT_LEN_2:
 		hw->len = 2;
-		hw->trig_data1.mcontrol.sizelo = 2;
+		RV_DBTR_SET_MC_SIZELO(hw->trig_data1, 2);
 		break;
 	case HW_BREAKPOINT_LEN_4:
 		hw->len = 4;
-		hw->trig_data1.mcontrol.sizelo = 3;
+		RV_DBTR_SET_MC_SIZELO(hw->trig_data1, 3);
 		break;
 #if __riscv_xlen >= 64
 	case HW_BREAKPOINT_LEN_8:
 		hw->len = 8;
-		hw->trig_data1.mcontrol.sizelo = 1;
-		hw->trig_data1.mcontrol.sizehi = 1;
+		RV_DBTR_SET_MC_SIZELO(hw->trig_data1, 1);
+		RV_DBTR_SET_MC_SIZEHI(hw->trig_data1, 1);
 		break;
 #endif
 	default:
 		return -EINVAL;
 	}
 
-	hw->trig_data1.mcontrol.type = RISCV_DBTR_TRIG_MCONTROL;
-	hw->trig_data1.mcontrol.dmode = 0;
-	hw->trig_data1.mcontrol.timing = 0;
-	hw->trig_data1.mcontrol.select = 0;
-	hw->trig_data1.mcontrol.action = 0;
-	hw->trig_data1.mcontrol.chain = 0;
-	hw->trig_data1.mcontrol.match = 0;
+	RV_DBTR_SET_MC_TYPE(hw->trig_data1, RISCV_DBTR_TRIG_MCONTROL);
 
-	hw->trig_data1.mcontrol.m = 0;
-	hw->trig_data1.mcontrol.s = 1;
-	hw->trig_data1.mcontrol.u = 1;
+	CLEAR_DBTR_BIT(hw->trig_data1, MC, DMODE);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC, TIMING);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC, SELECT);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC, ACTION);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC, CHAIN);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC, MATCH);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC, M);
+
+	SET_DBTR_BIT(hw->trig_data1, MC, S);
+	SET_DBTR_BIT(hw->trig_data1, MC, U);
 
 	return 0;
 }
@@ -174,20 +176,20 @@ int arch_build_type6_trigger(const struct perf_event_attr *attr,
 	switch (attr->bp_type) {
 	case HW_BREAKPOINT_X:
 		hw->type = RISCV_DBTR_BREAKPOINT;
-		hw->trig_data1.mcontrol6.execute = 1;
+		RV_DBTR_SET_MC6_EXEC(hw->trig_data1);
 		break;
 	case HW_BREAKPOINT_R:
 		hw->type = RISCV_DBTR_WATCHPOINT;
-		hw->trig_data1.mcontrol6.load = 1;
+		RV_DBTR_SET_MC6_LOAD(hw->trig_data1);
 		break;
 	case HW_BREAKPOINT_W:
 		hw->type = RISCV_DBTR_WATCHPOINT;
-		hw->trig_data1.mcontrol6.store = 1;
+		RV_DBTR_SET_MC6_STORE(hw->trig_data1);
 		break;
 	case HW_BREAKPOINT_RW:
 		hw->type = RISCV_DBTR_WATCHPOINT;
-		hw->trig_data1.mcontrol6.store = 1;
-		hw->trig_data1.mcontrol6.load = 1;
+		RV_DBTR_SET_MC6_STORE(hw->trig_data1);
+		RV_DBTR_SET_MC6_LOAD(hw->trig_data1);
 		break;
 	default:
 		return -EINVAL;
@@ -197,37 +199,38 @@ int arch_build_type6_trigger(const struct perf_event_attr *attr,
 	switch (attr->bp_len) {
 	case HW_BREAKPOINT_LEN_1:
 		hw->len = 1;
-		hw->trig_data1.mcontrol6.size = 1;
+		RV_DBTR_SET_MC6_SIZE(hw->trig_data1, 1);
 		break;
 	case HW_BREAKPOINT_LEN_2:
 		hw->len = 2;
-		hw->trig_data1.mcontrol6.size = 2;
+		RV_DBTR_SET_MC6_SIZE(hw->trig_data1, 2);
 		break;
 	case HW_BREAKPOINT_LEN_4:
 		hw->len = 4;
-		hw->trig_data1.mcontrol6.size = 3;
+		RV_DBTR_SET_MC6_SIZE(hw->trig_data1, 3);
 		break;
 	case HW_BREAKPOINT_LEN_8:
 		hw->len = 8;
-		hw->trig_data1.mcontrol6.size = 5;
+		RV_DBTR_SET_MC6_SIZE(hw->trig_data1, 5);
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	hw->trig_data1.mcontrol6.type = RISCV_DBTR_TRIG_MCONTROL6;
-	hw->trig_data1.mcontrol6.dmode = 0;
-	hw->trig_data1.mcontrol6.timing = 0;
-	hw->trig_data1.mcontrol6.select = 0;
-	hw->trig_data1.mcontrol6.action = 0;
-	hw->trig_data1.mcontrol6.chain = 0;
-	hw->trig_data1.mcontrol6.match = 0;
+	RV_DBTR_SET_MC6_TYPE(hw->trig_data1, RISCV_DBTR_TRIG_MCONTROL6);
 
-	hw->trig_data1.mcontrol6.m = 0;
-	hw->trig_data1.mcontrol6.s = 1;
-	hw->trig_data1.mcontrol6.u = 1;
-	hw->trig_data1.mcontrol6.vs = 0;
-	hw->trig_data1.mcontrol6.vu = 0;
+	CLEAR_DBTR_BIT(hw->trig_data1, MC6, DMODE);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC6, TIMING);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC6, SELECT);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC6, ACTION);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC6, CHAIN);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC6, MATCH);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC6, M);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC6, VS);
+	CLEAR_DBTR_BIT(hw->trig_data1, MC6, VU);
+
+	SET_DBTR_BIT(hw->trig_data1, MC6, S);
+	SET_DBTR_BIT(hw->trig_data1, MC6, U);
 
 	return 0;
 }
@@ -327,7 +330,7 @@ int arch_install_hw_breakpoint(struct perf_event *bp)
 	raw_spin_lock_irqsave(this_cpu_ptr(&msg_lock),
 			  *this_cpu_ptr(&msg_lock_flags));
 
-	xmit->tdata1 = cpu_to_lle(info->trig_data1.value);
+	xmit->tdata1 = cpu_to_lle(info->trig_data1);
 	xmit->tdata2 = cpu_to_lle(info->trig_data2);
 	xmit->tdata3 = cpu_to_lle(info->trig_data3);
 
@@ -438,7 +441,7 @@ void arch_update_hw_breakpoint(struct perf_event *bp)
 	raw_spin_lock_irqsave(this_cpu_ptr(&msg_lock),
 			  *this_cpu_ptr(&msg_lock_flags));
 
-	xmit->tdata1 = cpu_to_lle(info->trig_data1.value);
+	xmit->tdata1 = cpu_to_lle(info->trig_data1);
 	xmit->tdata2 = cpu_to_lle(info->trig_data2);
 	xmit->tdata3 = cpu_to_lle(info->trig_data3);
 
