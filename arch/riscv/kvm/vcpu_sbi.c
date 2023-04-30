@@ -30,6 +30,16 @@ static const struct kvm_vcpu_sbi_extension vcpu_sbi_ext_pmu = {
 };
 #endif
 
+#ifdef CONFIG_HAVE_VIRT_HW_BREAKPOINT
+extern const struct kvm_vcpu_sbi_extension vcpu_sbi_ext_dbtr;
+#else
+static const struct kvm_vcpu_sbi_extension vcpu_sbi_ext_dbtr = {
+	.extid_start = -1UL,
+	.extid_end = -1UL,
+	.handler = NULL,
+};
+#endif
+
 static const struct kvm_vcpu_sbi_extension *sbi_ext[] = {
 	&vcpu_sbi_ext_v01,
 	&vcpu_sbi_ext_base,
@@ -39,6 +49,7 @@ static const struct kvm_vcpu_sbi_extension *sbi_ext[] = {
 	&vcpu_sbi_ext_srst,
 	&vcpu_sbi_ext_hsm,
 	&vcpu_sbi_ext_pmu,
+	&vcpu_sbi_ext_dbtr,
 	&vcpu_sbi_ext_experimental,
 	&vcpu_sbi_ext_vendor,
 };

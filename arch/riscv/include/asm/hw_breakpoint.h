@@ -9,6 +9,8 @@ struct task_struct;
 
 #include <uapi/linux/hw_breakpoint.h>
 
+#define RISCV_DBTR_CONFIG3_GUEST_EVENTS 0x1
+
 #if __riscv_xlen == 64
 #define cpu_to_lle cpu_to_le64
 #define lle_to_cpu le64_to_cpu
@@ -51,6 +53,22 @@ enum {
 	RISCV_DBTR_TRIG_ITRIGGER,
 	RISCV_DBTR_TRIG_ETRIGGER,
 	RISCV_DBTR_TRIG_MCONTROL6,
+};
+
+enum {
+	RV_DBTR_DECLARE_BIT(TS, MAPPED, 0),
+	RV_DBTR_DECLARE_BIT(TS, U, 1),
+	RV_DBTR_DECLARE_BIT(TS, S, 2),
+	RV_DBTR_DECLARE_BIT(TS, VU, 3),
+	RV_DBTR_DECLARE_BIT(TS, VS, 4),
+};
+
+enum {
+	RV_DBTR_DECLARE_BIT_MASK(TS, MAPPED, 1),
+	RV_DBTR_DECLARE_BIT_MASK(TS, U, 1),
+	RV_DBTR_DECLARE_BIT_MASK(TS, S, 1),
+	RV_DBTR_DECLARE_BIT_MASK(TS, VU, 1),
+	RV_DBTR_DECLARE_BIT_MASK(TS, VS, 1),
 };
 
 /* Trigger Data 1 */
@@ -254,6 +272,20 @@ enum {
 			& RV_DBTR_BIT_MASK(MC6, SIZE));		\
 	} while(0);
 
+#define RV_DBTR_GET_TDATA1_TYPE(_t1)					\
+	({								\
+		unsigned long __type = _t1 & RV_DBTR_BIT_MASK(MC6, TYPE); \
+		__type >>= RV_DBTR_BIT(MC6, TYPE);			\
+		(__type);						\
+	})
+
+#define RV_DBTR_GET_MC6_SIZE(_t1)					\
+	({								\
+		unsigned long _size = _t1 & RV_DBTR_BIT_MASK(MC6, SIZE); \
+		_size >>= RV_DBTR_BIT(MC6, SIZE);			\
+		(_size);						\
+	})
+
 typedef unsigned long riscv_dbtr_tdata1_mcontrol_t;
 typedef unsigned long riscv_dbtr_tdata1_mcontrol6_t;
 
@@ -290,6 +322,9 @@ int arch_install_hw_breakpoint(struct perf_event *bp);
 void arch_uninstall_hw_breakpoint(struct perf_event *bp);
 void hw_breakpoint_pmu_read(struct perf_event *bp);
 void clear_ptrace_hw_breakpoint(struct task_struct *tsk);
+
+/* used by KVM to find details about HW implemented triggers */
+int riscv_hw_get_num_triggers(unsigned long *num_triggers, unsigned long *type);
 
 #else
 

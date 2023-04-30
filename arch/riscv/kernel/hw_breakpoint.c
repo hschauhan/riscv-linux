@@ -6,6 +6,7 @@
 #include <linux/percpu.h>
 #include <linux/kdebug.h>
 #include <linux/bitops.h>
+#include <linux/cpu.h>
 
 #include <asm/sbi.h>
 
@@ -31,46 +32,62 @@ static int dbtr_init __ro_after_init;
 #error "Unknown __riscv_xlen"
 #endif
 
-static int arch_hw_setup_sbi_shmem(void)
+static void arch_smp_setup_sbi_shmem(void *ctxt)
 {
-	struct sbi_dbtr_shmem_entry *dbtr_shmem = this_cpu_ptr(sbi_dbtr_shmem);
-	unsigned long shmem_pa = __pa(dbtr_shmem);
-	int rc = 0;
+	struct sbi_dbtr_shmem_entry *dbtr_shmem = (struct sbi_dbtr_shmem_entry *)ctxt;
+	unsigned long shmem_pa;
 	struct sbiret ret;
+	int cpu;
+
+	cpu = get_cpu();
+
+	shmem_pa = __pa(dbtr_shmem);
 
 	ret = sbi_ecall(SBI_EXT_DBTR, SBI_EXT_DBTR_SETUP_SHMEM,
-			(!MEM_LO(shmem_pa) ? 0xFFFFFFFFUL : MEM_LO(shmem_pa)),
-			(!MEM_HI(shmem_pa) ? 0xFFFFFFFFUL : MEM_HI(shmem_pa)),
-			 0, 0, 0, 0);
+			MEM_LO(shmem_pa), MEM_HI(shmem_pa), 0, 0, 0, 0);
 
 	if (ret.error) {
 		switch(ret.error) {
 		case SBI_ERR_DENIED:
-			pr_warn("%s: Access denied for shared memory at %lx\n",
-				__func__, shmem_pa);
-			rc = -EPERM;
+			pr_err("%s: Access denied for shared memory at %lx\n",
+			       __func__, shmem_pa);
 			break;
 
 		case SBI_ERR_INVALID_PARAM:
 		case SBI_ERR_INVALID_ADDRESS:
-			pr_warn("%s: Invalid address parameter (%lu)\n",
-				__func__, ret.error);
-			rc = -EINVAL;
+			pr_err("%s: Invalid address parameter (%lu)\n",
+			       __func__, ret.error);
 			break;
-
+				
 		case SBI_ERR_ALREADY_AVAILABLE:
-			pr_warn("%s: Shared memory is already set\n",
-				__func__);
-			rc = -EADDRINUSE;
+			pr_err("%s: Shared memory is already set\n",
+			       __func__);
 			break;
-
+				
 		default:
-			pr_warn("%s: Unknown error %lu\n", __func__, ret.error);
+			pr_err("%s: Unknown error %lu\n", __func__, ret.error);
 			break;
 		}
 	}
 
-	return rc;
+	put_cpu();
+
+	pr_debug("CPU %d: HW Breakpoint shared memory registered.\n", cpu);
+
+	return;
+}
+
+static void arch_hw_setup_sbi_shmem(void)
+{
+	unsigned int cpu = 0;
+	struct sbi_dbtr_shmem_entry *dbtr_shmem;
+
+	for_each_online_cpu(cpu) {
+		dbtr_shmem = per_cpu_ptr(sbi_dbtr_shmem, cpu);
+		if (smp_call_function_single(cpu, arch_smp_setup_sbi_shmem,
+					     (void *)dbtr_shmem, true) != 0)
+			pr_warn("HW Breakpoint: CPU %d shared memory setup failed\n", cpu);
+	}
 }
 
 void arch_hw_breakpoint_init_sbi(void)
@@ -128,6 +145,19 @@ void arch_hw_breakpoint_init_sbi(void)
 done:
 	dbtr_init = 1;
 }
+
+int riscv_hw_get_num_triggers(unsigned long *num_triggers,
+			      unsigned long *type)
+{
+	if (!dbtr_init)
+		return -1;
+
+	*num_triggers = dbtr_total_num;
+	*type = dbtr_type;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(riscv_hw_get_num_triggers);
 
 int hw_breakpoint_slots(int type)
 {
@@ -277,11 +307,35 @@ int arch_build_type6_trigger(const struct perf_event_attr *attr,
 	CLEAR_DBTR_BIT(hw->trig_data1, MC6, CHAIN);
 	CLEAR_DBTR_BIT(hw->trig_data1, MC6, MATCH);
 	CLEAR_DBTR_BIT(hw->trig_data1, MC6, M);
-	CLEAR_DBTR_BIT(hw->trig_data1, MC6, VS);
-	CLEAR_DBTR_BIT(hw->trig_data1, MC6, VU);
 
-	SET_DBTR_BIT(hw->trig_data1, MC6, S);
-	SET_DBTR_BIT(hw->trig_data1, MC6, U);
+	if (attr->config3 & RISCV_DBTR_CONFIG3_GUEST_EVENTS) {
+		CLEAR_DBTR_BIT(hw->trig_data1, MC6, U);
+		SET_DBTR_BIT(hw->trig_data1, MC6, S);
+		SET_DBTR_BIT(hw->trig_data1, MC6, VU);
+		SET_DBTR_BIT(hw->trig_data1, MC6, VS);
+
+		if (attr->exclude_host || attr->exclude_hv)
+			CLEAR_DBTR_BIT(hw->trig_data1, MC6, S);
+
+		if (attr->exclude_kernel)
+			CLEAR_DBTR_BIT(hw->trig_data1, MC6, VS);
+
+		if (attr->exclude_user)
+			CLEAR_DBTR_BIT(hw->trig_data1, MC6, VU);
+	} else {
+		if (attr->exclude_kernel)
+			CLEAR_DBTR_BIT(hw->trig_data1, MC6, S);
+		else
+			SET_DBTR_BIT(hw->trig_data1, MC6, S);
+
+		if (attr->exclude_user)
+			CLEAR_DBTR_BIT(hw->trig_data1, MC6, U);
+		else
+			SET_DBTR_BIT(hw->trig_data1, MC6, U);
+
+		CLEAR_DBTR_BIT(hw->trig_data1, MC6, VS);
+		CLEAR_DBTR_BIT(hw->trig_data1, MC6, VU);
+	}
 
 	return 0;
 }
@@ -459,14 +513,14 @@ void arch_enable_hw_breakpoint(struct perf_event *bp)
 	}
 
 	if (i == dbtr_total_num) {
-		pr_warn("%s: unknown breakpoint\n", __func__);
+		pr_err("%s: unknown breakpoint\n", __func__);
 		return;
 	}
 
 	ret = sbi_ecall(SBI_EXT_DBTR, SBI_EXT_DBTR_TRIGGER_ENABLE,
 			i, 1, 0, 0, 0, 0);
 	if (ret.error) {
-		pr_warn("%s: failed to install trigger %d\n", __func__, i);
+		pr_err("%s: failed to install trigger %d\n", __func__, i);
 		return;
 	}
 }
@@ -585,20 +639,23 @@ static int __init arch_hw_breakpoint_init(void)
 		goto out;
 	}
 
-	sbi_dbtr_shmem = __alloc_percpu(sizeof(*sbi_dbtr_shmem), dbtr_total_num);
+	sbi_dbtr_shmem = __alloc_percpu(sizeof(*sbi_dbtr_shmem) * dbtr_total_num, PAGE_SIZE);
 	if (!sbi_dbtr_shmem) {
 		pr_warn("failed to allocate SBI shared memory\n");
-		rc = -ENOMEM;
-		goto out;
-	}
-
-	if (!(rc = arch_hw_setup_sbi_shmem())) {
-		pr_warn("%s: failed to register share memory with SBI\n",
-			__func__);
-		free_percpu(sbi_dbtr_shmem);
+		sbi_dbtr_shmem = NULL;
+		return -ENOMEM;
 	}
 
  out:
 	return rc;
 }
 arch_initcall(arch_hw_breakpoint_init);
+
+static int __init arch_hw_setup_dbtr_shmem(void)
+{
+	if (sbi_dbtr_shmem)
+		arch_hw_setup_sbi_shmem();
+
+	return 0;
+}
+late_initcall(arch_hw_setup_dbtr_shmem);

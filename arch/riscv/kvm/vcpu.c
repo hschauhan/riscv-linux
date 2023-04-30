@@ -199,6 +199,9 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
 	/* setup performance monitoring */
 	kvm_riscv_vcpu_pmu_init(vcpu);
 
+	/* setup the debug triggers for guest */
+	kvm_riscv_vcpu_dbtr_init(vcpu);
+
 	/* Reset VCPU */
 	kvm_riscv_reset_vcpu(vcpu);
 

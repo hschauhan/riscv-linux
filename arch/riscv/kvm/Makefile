@@ -26,3 +26,4 @@ kvm-y += vcpu_sbi_replace.o
 kvm-y += vcpu_sbi_hsm.o
 kvm-y += vcpu_timer.o
 kvm-$(CONFIG_RISCV_PMU_SBI) += vcpu_pmu.o vcpu_sbi_pmu.o
+kvm-$(CONFIG_HAVE_VIRT_HW_BREAKPOINT) += vcpu_dbtr.o vcpu_sbi_dbtr.o
