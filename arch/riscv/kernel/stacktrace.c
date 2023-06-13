@@ -17,6 +17,7 @@
 #ifdef CONFIG_FRAME_POINTER
 
 extern asmlinkage void ret_from_exception(void);
+extern asmlinkage void handle_sse(void);
 
 void notrace walk_stackframe(struct task_struct *task, struct pt_regs *regs,
 			     bool (*fn)(void *, unsigned long), void *arg)
@@ -68,6 +69,19 @@ void notrace walk_stackframe(struct task_struct *task, struct pt_regs *regs,
 
 				pc = ((struct pt_regs *)sp)->epc;
 				fp = ((struct pt_regs *)sp)->s0;
+			} else if (pc == (unsigned long)handle_sse) {
+				if (unlikely(!fn(arg, pc)))
+					break;
+				/* We don't have pt_regs when handling SSE
+				 * events but we build a custom stackframe,
+				 * moreover, the stack might changes across
+				 * boundaries so update it to avoid failing the
+				 * checks above
+				 */
+				frame = (struct stackframe *)fp - 1;
+				fp = frame->fp;
+				pc = frame->ra;
+				sp = fp - sizeof(struct stackframe);
 			}
 		}
 

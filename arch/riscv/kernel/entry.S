@@ -268,6 +268,28 @@ SYM_CODE_START(ret_from_fork)
 	tail syscall_exit_to_user_mode
 SYM_CODE_END(ret_from_fork)
 
+#ifdef CONFIG_RISCV_SSE
+SYM_CODE_START(handle_sse)
+	addi sp, sp, -(STACKFRAME_SIZE_ON_STACK)
+	REG_L t0, SSE_INTERRUPTED_EXEC_MODE(a1)
+	andi t1, t0, 0x1
+	beqz t1, 1f /* usermode was interrupted */
+
+	/* Create a kernel stack frame from interrupted context */
+	REG_L t1, SSE_INTERRUPTED_S0(a1)
+	REG_L t0, SSE_INTERRUPTED_PC(a1)
+	REG_S t1, STACKFRAME_FP(sp)
+	REG_S t0, STACKFRAME_RA(sp)
+	addi s0, sp, STACKFRAME_SIZE_ON_STACK
+	la ra, handle_sse
+	REG_L tp, SSE_INTERRUPTED_TP(a1)
+	tail do_sse
+1:
+	csrr tp, CSR_SCRATCH
+	tail do_sse
+SYM_CODE_END(handle_sse)
+#endif
+
 /*
  * Integer register context switch
  * The callee-saved registers must be saved and restored.
