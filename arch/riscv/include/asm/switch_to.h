@@ -7,6 +7,7 @@
 #define _ASM_RISCV_SWITCH_TO_H
 
 #include <linux/jump_label.h>
+#include <linux/percpu-defs.h>
 #include <linux/sched/task_stack.h>
 #include <linux/mm_types.h>
 #include <asm/vector.h>
@@ -69,6 +70,13 @@ static __always_inline bool has_fpu(void) { return false; }
 #define fstate_restore(task, regs) do { } while (0)
 #define __switch_to_fpu(__prev, __next) do { } while (0)
 #endif
+
+DECLARE_PER_CPU(struct task_struct *, __entry_task);
+
+static inline void __switch_entry_task(struct task_struct *next)
+{
+	__this_cpu_write(__entry_task, next);
+}
 
 extern struct task_struct *__switch_to(struct task_struct *,
 				       struct task_struct *);
