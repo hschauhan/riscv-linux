@@ -90,6 +90,146 @@ static int sse_event_set_target_cpu(struct sse_event *sse_evt,
 	return 0;
 }
 
+#ifdef CONFIG_RISCV_SSE_TEST
+static bool sse_test_can_inject_event(u32 evt)
+{
+	struct sbiret ret;
+
+	/* Check if injection is supported */
+	ret = sbi_sse_ecall(SBI_SSE_EVENT_ATTR_GET, evt,
+			    SBI_SSE_EVENT_ATTR_INJECTION, 0);
+	if (ret.error) {
+		pr_err("Event %x get injection attribute failed, error %ld\n",
+		       evt, ret.error);
+		return false;
+	}
+
+	return !!ret.value;
+}
+
+static int sse_test_inject_event(u32 evt, unsigned int cpu)
+{
+	unsigned int hart_id = cpuid_to_hartid_map(cpu);
+	struct sse_event *sse_evt;
+	struct sbiret ret;
+	int res;
+
+	if (sse_event_is_global(evt)) {
+		sse_evt = sse_event_get(evt);
+		if (!sse_evt) {
+			pr_err("Failed to get event from id\n");
+			return -EINVAL;
+		}
+
+		res = sse_event_set_target_cpu(sse_evt, cpu);
+		if (res) {
+			pr_err("Failed to set target cpu event %x, error %ld\n",
+			       evt, ret.error);
+			return res;
+		}
+	}
+
+	ret = sbi_sse_ecall(SBI_SSE_EVENT_SIGNAL, evt, hart_id, 0);
+	if (ret.error) {
+		pr_err("Failed to signal event %x, error %ld\n", evt,
+		       ret.error);
+		return sbi_err_map_linux_errno(ret.error);
+	}
+
+	return 0;
+}
+
+struct sse_test_arg {
+	u32 evt;
+	int cpu;
+	struct completion completion;
+};
+
+static int sse_test_handler(u32 evt, void *arg,
+			    struct sse_interrupted_state *i_state)
+{
+	int ret = 0;
+	struct sse_test_arg *targ = arg;
+
+	if (evt != targ->evt) {
+		pr_err("Received SSE event id %x instead of %x\n", targ->evt,
+		       evt);
+		ret = -EINVAL;
+	}
+
+	if (targ->cpu != smp_processor_id()) {
+		pr_err("Received SSE event %d on CPU %d instead of %d\n",
+		       evt, smp_processor_id(), targ->cpu);
+		ret = -EINVAL;
+	}
+
+	complete(&targ->completion);
+
+	return ret;
+}
+
+static void sse_test_injection(void)
+{
+	int i, ret, cpu, j;
+	u32 evt;
+	struct sse_test_arg test_arg;
+	u32 events[] = {
+		SBI_SSE_EVENT_LOCAL_RAS,
+		SBI_SSE_EVENT_LOCAL_PMU,
+		SBI_SSE_EVENT_LOCAL_ASYNC_PF,
+		SBI_SSE_EVENT_LOCAL_DEBUG,
+		SBI_SSE_EVENT_GLOBAL_RAS,
+		SBI_SSE_EVENT_GLOBAL_DEBUG,
+	};
+
+	init_completion(&test_arg.completion);
+
+	for (i = 0; i < ARRAY_SIZE(events); i++) {
+		evt = events[i];
+		test_arg.evt = evt;
+
+		if (!sse_test_can_inject_event(evt)) {
+			pr_err("Can not inject event %x, skipping\n", evt);
+			continue;
+		}
+
+		ret = sse_register_event(evt, 0, sse_test_handler,
+					 (void *) &test_arg);
+		if (ret) {
+			pr_err("Failed to register SSE event %x handler\n",
+			       evt);
+			continue;
+		}
+
+		for (j = 0; j < 100000; j++) {
+			for_each_online_cpu(cpu) {
+				test_arg.cpu = cpu;
+				smp_wmb();
+
+				ret = sse_test_inject_event(evt, cpu);
+				if (ret) {
+					pr_err("SSE event %x injection failed\n", evt);
+					continue;
+				}
+
+				ret = wait_for_completion_timeout(&test_arg.completion,
+								msecs_to_jiffies(100));
+				if (!ret) {
+					panic("Failed to wait for event %x completion on CPU %d\n",
+					evt, cpu);
+				}
+
+				reinit_completion(&test_arg.completion);
+			}
+		}
+
+		sse_unregister_event(evt);
+	}
+}
+#else
+static void sse_test_injection(void) { }
+#endif
+
 static int sse_event_init_registered(unsigned int cpu, u32 evt,
 				     struct sse_registered_event *reg_evt,
 				     sse_event_handler *handler, void *arg)
@@ -421,6 +561,7 @@ static int __init sse_init(void)
 		return ret;
 
 	sse_available = true;
+	sse_test_injection();
 
 	return 0;
 }
