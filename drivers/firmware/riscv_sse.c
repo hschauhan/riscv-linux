@@ -542,6 +542,24 @@ static int sse_cpu_teardown(unsigned int cpu)
 	return 0;
 }
 
+static int sse_ras_handler(u32 evt, void *arg,
+			   struct sse_interrupted_state *i_state)
+{
+	pr_err("Got SSE RAS local event !\n");
+
+	return 0;
+}
+
+static void sse_test_ras(void)
+{
+	int ret;
+
+	ret = sse_register_event(SBI_SSE_EVENT_LOCAL_RAS, 0, sse_ras_handler,
+				 NULL);
+	if (ret)
+		pr_err("Failed to register SSE RAS event handler\n");
+}
+
 static int __init sse_init(void)
 {
 	int cpu, ret;
@@ -562,6 +580,8 @@ static int __init sse_init(void)
 
 	sse_available = true;
 	sse_test_injection();
+
+	sse_test_ras();
 
 	return 0;
 }
