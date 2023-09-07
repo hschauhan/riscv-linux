@@ -103,3 +103,4 @@ obj-$(CONFIG_64BIT)		+= pi/
 obj-$(CONFIG_ACPI)		+= acpi.o
 obj-$(CONFIG_CPU_IDLE)		+= cpuidle.o
 obj-y				+= cppc-sbi.o
+obj-y				+= rpxy-sbi.o

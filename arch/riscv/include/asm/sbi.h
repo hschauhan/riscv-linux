@@ -34,6 +34,7 @@ enum sbi_ext_id {
 	SBI_EXT_DBCN = 0x4442434E,
 	SBI_EXT_NACL = 0x4E41434C,
 	SBI_EXT_CPPC = 0x43505043,
+	SBI_EXT_RPXY = 0x52505859,
 
 	/* Experimentals extensions must lie within this range */
 	SBI_EXT_EXPERIMENTAL_START = 0x08000000,
@@ -87,6 +88,14 @@ enum sbi_hsm_hart_state {
 	SBI_HSM_STATE_SUSPENDED,
 	SBI_HSM_STATE_SUSPEND_PENDING,
 	SBI_HSM_STATE_RESUME_PENDING,
+};
+
+enum sbi_ext_rpxy_fid {
+	SBI_EXT_RPXY_PROBE = 0,
+	SBI_EXT_RPXY_SETUP_SHMEM,
+	SBI_EXT_RPXY_SEND_NORMAL_MSG,
+	SBI_EXT_RPXY_SEND_POSTED_MSG,
+	SBI_EXT_RPXY_GET_NOTIFICATIONS,
 };
 
 #define SBI_HSM_SUSP_BASE_MASK			0x7fffffff
@@ -489,5 +498,17 @@ struct sbi_cppc_data {
 
 void sbi_cppc_read(void *read_data);
 void sbi_cppc_write(void *write_data);
+
+int sbi_rpxy_srvgrp_probe(u32 transportid, u32 srvgrpid, unsigned long *val);
+
+int sbi_rpxy_send_normal_message(u32 transportid, u32 srvgrpid, u8 srvid,
+				 void *tx, unsigned long tx_msglen,
+				 void *rx, unsigned long *rx_msglen);
+
+int sbi_rpxy_send_posted_message(u32 transportid, u32 srvgrpid, u8 srvid,
+				 void *tx, unsigned long tx_msglen);
+
+int sbi_rpxy_get_notifications(u32 transportid, u32 srvgrpid,
+			       void *rx, unsigned long *rx_msglen);
 
 #endif /* _ASM_RISCV_SBI_H */
