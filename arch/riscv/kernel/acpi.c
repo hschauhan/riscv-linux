@@ -196,6 +196,32 @@ u32 get_acpi_id_for_cpu(int cpu)
 	return acpi_cpu_get_madt_rintc(cpu)->uid;
 }
 
+pgprot_t __acpi_get_mem_attribute(phys_addr_t addr)
+{
+	/*
+	 * According to "Table 8 Map: EFI memory types to AArch64 memory
+	 * types" of UEFI 2.5 section 2.3.6.1, each EFI memory type is
+	 * mapped to a corresponding MAIR attribute encoding.
+	 * The EFI memory attribute advises all possible capabilities
+	 * of a memory region.
+	 */
+
+	u64 attr;
+
+	attr = efi_mem_attributes(addr);
+	if (attr & EFI_MEMORY_WB)
+		return PAGE_KERNEL;
+	if (attr & EFI_MEMORY_WC)
+		return PAGE_KERNEL;
+	if (attr & EFI_MEMORY_WT)
+		// Himanshu: Fix this
+		//return __acpi_get_writethrough_mem_attribute();
+		return PAGE_KERNEL;
+	//return __pgprot(PROT_DEVICE_nGnRnE);
+	// Himanshu: Fix this
+	return PAGE_KERNEL;
+}
+
 /*
  * __acpi_map_table() will be called before paging_init(), so early_ioremap()
  * or early_memremap() should be called here to for ACPI table mapping.
