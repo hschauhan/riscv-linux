@@ -6,6 +6,8 @@
 #define pr_fmt(fmt) "sse: " fmt
 
 #include <linux/cpu.h>
+#include <acpi/ghes.h>
+#include <linux/acpi.h>
 #include <linux/cpuhotplug.h>
 #include <linux/hardirq.h>
 #include <linux/list.h>
@@ -586,3 +588,50 @@ static int __init sse_init(void)
 	return 0;
 }
 late_initcall(sse_init);
+
+int sse_register_ghes(struct ghes *ghes, sse_event_handler *lo_cb,
+		      sse_event_handler *hi_cb)
+{
+	int err;
+	//u64 result;
+	//u32 event_num;
+	sse_event_handler *cb;
+
+	if (!IS_ENABLED(CONFIG_ACPI_APEI_GHES))
+		return -EOPNOTSUPP;
+
+	if (!sse_available)
+		return -EOPNOTSUPP;
+
+	//event_num = ghes->generic->notify.vector;
+	/* TODO: Decide callback on priority */
+	cb = lo_cb;
+	err = sse_register_event(SBI_SSE_EVENT_LOCAL_RAS, 0, cb, ghes);
+
+	return err;
+}
+
+int sse_unregister_ghes(struct ghes *ghes)
+{
+	//int i;
+	//int err;
+	u32 event_num = ghes->generic->notify.vector;
+
+	might_sleep();
+
+	if (!IS_ENABLED(CONFIG_ACPI_APEI_GHES))
+		return -EOPNOTSUPP;
+
+	if (!sse_available)
+		return -EOPNOTSUPP;
+
+	/* TODO: per ghes vector */
+	event_num = SBI_SSE_EVENT_LOCAL_RAS;
+	/*
+	 * The event may be running on another CPU. Disable it
+	 * to stop new events, then try to unregister a few times.
+	 */
+	sse_unregister_event(event_num);
+
+	return 0;
+}
