@@ -1303,7 +1303,7 @@ static int __ghes_sse_callback(struct ghes *ghes,
 }
 
 /* Low priority */
-static int ghes_sse_lo_callback(u32 event_num, void *arg)
+static int ghes_sse_lo_callback(u32 event_num, void *arg, struct sse_interrupted_state *i_state)
 {
 	static DEFINE_RAW_SPINLOCK(ghes_notify_lock_sse_lo);
 	struct ghes *ghes = arg;
@@ -1317,7 +1317,7 @@ static int ghes_sse_lo_callback(u32 event_num, void *arg)
 }
 
 /* High priority */
-static int ghes_sse_hi_callback(u32 event_num, void *arg)
+static int ghes_sse_hi_callback(u32 event_num, void *arg, struct sse_interrupted_state *i_state)
 {
 	static DEFINE_RAW_SPINLOCK(ghes_notify_lock_sse_hi);
 	struct ghes *ghes = arg;
@@ -1387,6 +1387,14 @@ static int ghes_probe(struct platform_device *ghes_dev)
 		pr_warn(GHES_PFX "Generic hardware error source: %d notified via local interrupt is not supported!\n",
 			generic->header.source_id);
 		goto err;
+	case ACPI_HEST_NOTIFY_SSE:
+		if (!IS_ENABLED(CONFIG_ACPI_APEI_SSE)) {
+			pr_warn(GHES_PFX "Generic hardware error source: %d notified via SSE is not supported\n",
+				generic->header.source_id);
+			rc = -ENOTSUPP;
+			goto err;
+		}
+		break;
 	default:
 		pr_warn(FW_WARN GHES_PFX "Unknown notification type: %u for generic hardware error source: %d\n",
 			generic->notify.type, generic->header.source_id);
@@ -1453,8 +1461,11 @@ static int ghes_probe(struct platform_device *ghes_dev)
 
 	case ACPI_HEST_NOTIFY_SSE:
 		rc = apei_sse_register_ghes(ghes);
-		if (rc)
+		if (rc) {
+			pr_err(GHES_PFX "Failed to register for SSE notification on vector %d\n",
+			       generic->notify.vector);
 			goto err;
+		}
 		break;
 	default:
 		BUG();

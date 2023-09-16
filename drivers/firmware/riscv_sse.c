@@ -228,8 +228,27 @@ static void sse_test_injection(void)
 		sse_unregister_event(evt);
 	}
 }
+
+static int sse_ras_handler(u32 evt, void *arg,
+			   struct sse_interrupted_state *i_state)
+{
+	pr_err("Got SSE RAS local event !\n");
+
+	return 0;
+}
+
+static void sse_test_ras(void)
+{
+	int ret;
+
+	ret = sse_register_event(SBI_SSE_EVENT_LOCAL_RAS, 0, sse_ras_handler,
+				 NULL);
+	if (ret)
+		pr_err("Failed to register SSE RAS event handler\n");
+}
 #else
 static void sse_test_injection(void) { }
+static void sse_test_ras(void) { }
 #endif
 
 static int sse_event_init_registered(unsigned int cpu, u32 evt,
@@ -544,24 +563,6 @@ static int sse_cpu_teardown(unsigned int cpu)
 	return 0;
 }
 
-static int sse_ras_handler(u32 evt, void *arg,
-			   struct sse_interrupted_state *i_state)
-{
-	pr_err("Got SSE RAS local event !\n");
-
-	return 0;
-}
-
-static void sse_test_ras(void)
-{
-	int ret;
-
-	ret = sse_register_event(SBI_SSE_EVENT_LOCAL_RAS, 0, sse_ras_handler,
-				 NULL);
-	if (ret)
-		pr_err("Failed to register SSE RAS event handler\n");
-}
-
 static int __init sse_init(void)
 {
 	int cpu, ret;
@@ -587,7 +588,7 @@ static int __init sse_init(void)
 
 	return 0;
 }
-late_initcall(sse_init);
+core_initcall(sse_init);
 
 int sse_register_ghes(struct ghes *ghes, sse_event_handler *lo_cb,
 		      sse_event_handler *hi_cb)
