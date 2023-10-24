@@ -84,4 +84,16 @@ static inline const struct imsic_global_config *imsic_get_global_config(void)
 
 #endif
 
+struct device;
+struct fwnode_handle;
+
+#ifdef CONFIG_ACPI
+struct fwnode_handle *imsic_acpi_get_fwnode(struct device *dev);
+#else
+static inline struct fwnode_handle *imsic_acpi_get_fwnode(struct device *dev)
+{
+	return NULL;
+}
+#endif
+
 #endif
