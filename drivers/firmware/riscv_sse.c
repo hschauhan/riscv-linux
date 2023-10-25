@@ -424,4 +424,4 @@ static int __init sse_init(void)
 
 	return 0;
 }
-late_initcall(sse_init);
+core_initcall(sse_init);
