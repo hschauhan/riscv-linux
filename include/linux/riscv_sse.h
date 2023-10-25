@@ -8,6 +8,7 @@
 
 #include <linux/types.h>
 #include <linux/linkage.h>
+#include <linux/ptrace.h>
 
 struct sse_interrupted_state;
 
