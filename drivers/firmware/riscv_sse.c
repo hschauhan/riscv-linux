@@ -6,6 +6,8 @@
 #define pr_fmt(fmt) "sse: " fmt
 
 #include <linux/cpu.h>
+#include <acpi/ghes.h>
+#include <linux/acpi.h>
 #include <linux/cpuhotplug.h>
 #include <linux/hardirq.h>
 #include <linux/list.h>
@@ -425,3 +427,48 @@ static int __init sse_init(void)
 	return 0;
 }
 core_initcall(sse_init);
+
+int sse_register_ghes(struct ghes *ghes, sse_event_handler *lo_cb,
+		      sse_event_handler *hi_cb)
+{
+	int err;
+	u32 event_num;
+	sse_event_handler *cb;
+
+	if (!IS_ENABLED(CONFIG_ACPI_APEI_GHES))
+		return -EOPNOTSUPP;
+
+	if (!sse_available)
+		return -EOPNOTSUPP;
+
+	event_num = ghes->generic->notify.vector;
+	if (event_num > SBI_SSE_EVENT_LOCAL_RAS_RSVD)
+		return -EINVAL;
+
+	/* TODO: Decide callback on priority */
+	cb = lo_cb;
+	err = sse_register_event(event_num, 0, cb, ghes);
+
+	return err;
+}
+
+int sse_unregister_ghes(struct ghes *ghes)
+{
+	u32 event_num = ghes->generic->notify.vector;
+
+	might_sleep();
+
+	if (!IS_ENABLED(CONFIG_ACPI_APEI_GHES))
+		return -EOPNOTSUPP;
+
+	if (!sse_available)
+		return -EOPNOTSUPP;
+
+	event_num = ghes->generic->notify.vector;
+	if (event_num > SBI_SSE_EVENT_LOCAL_RAS_RSVD)
+		return -EINVAL;
+
+	sse_unregister_event(event_num);
+
+	return 0;
+}
