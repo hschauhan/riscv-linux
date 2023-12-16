@@ -585,7 +585,8 @@ static int __init arch_hw_breakpoint_init(void)
 		goto out;
 	}
 
-	sbi_dbtr_shmem = __alloc_percpu(sizeof(*sbi_dbtr_shmem), dbtr_total_num);
+	sbi_dbtr_shmem = __alloc_percpu(sizeof(*sbi_dbtr_shmem), PAGE_SIZE);
+
 	if (!sbi_dbtr_shmem) {
 		pr_warn("failed to allocate SBI shared memory\n");
 		rc = -ENOMEM;
