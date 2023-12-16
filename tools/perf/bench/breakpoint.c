@@ -205,7 +205,7 @@ int bench_breakpoint_enable(int argc, const char **argv)
 
 	for (i = 0; i < nthreads; i++) {
 		if (pthread_create(&threads[i], NULL,
-			i < enable_params.npassive ? passive_thread : active_thread, &done))
+			i < enable_params.npassive ? passive_thread : active_thread, &watched))
 			exit((perror("pthread_create"), EXIT_FAILURE));
 	}
 	usleep(10000);  // let the threads block
@@ -218,7 +218,7 @@ int bench_breakpoint_enable(int argc, const char **argv)
 	}
 	gettimeofday(&stop, NULL);
 	timersub(&stop, &start, &diff);
-	__atomic_store_n(&done, 1, __ATOMIC_RELAXED);
+	__atomic_store_n(&watched, 1, __ATOMIC_RELAXED);
 	futex_wake(&done, enable_params.npassive, 0);
 	for (i = 0; i < nthreads; i++)
 		pthread_join(threads[i], NULL);
