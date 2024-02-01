@@ -15,6 +15,7 @@
 #include <linux/tick.h>
 #include <linux/ptrace.h>
 #include <linux/uaccess.h>
+#include <linux/hw_breakpoint.h>
 
 #include <asm/unistd.h>
 #include <asm/processor.h>
@@ -180,6 +181,8 @@ void arch_release_task_struct(struct task_struct *tsk)
 	/* Free the vector context of datap. */
 	if (has_vector())
 		riscv_v_thread_free(tsk);
+
+	flush_ptrace_hw_breakpoint(current);
 }
 
 int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
@@ -229,6 +232,7 @@ int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 		riscv_v_thread_alloc(p);
 	p->thread.ra = (unsigned long)ret_from_fork;
 	p->thread.sp = (unsigned long)childregs; /* kernel sp */
+	clear_ptrace_hw_breakpoint(p);
 	return 0;
 }
 
