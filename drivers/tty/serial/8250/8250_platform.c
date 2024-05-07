@@ -6,6 +6,7 @@
  *	      PNP 8250/16550 ports
  *	      "serial8250" platform devices
  */
+#include <linux/acpi.h>
 #include <linux/array_size.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -103,11 +104,11 @@ void __init serial8250_isa_init_ports(void)
 }
 
 /*
- * Register a set of serial devices attached to a platform device.  The
+ * Register a set of serial devices attached to a ISA platform device. The
  * list is terminated with a zero flags entry, which means we expect
  * all entries to have at least UPF_BOOT_AUTOCONF set.
  */
-static int serial8250_probe(struct platform_device *dev)
+static int serial8250_isa_probe(struct platform_device *dev)
 {
 	struct plat_serial8250_port *p = dev_get_platdata(&dev->dev);
 	struct uart_8250_port uart;
@@ -158,6 +159,78 @@ static int serial8250_probe(struct platform_device *dev)
 }
 
 /*
+ * Generic 16550A platform devices
+ */
+static int serial8250_platform_probe(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct uart_8250_port uart;
+	struct resource *regs;
+	unsigned char iotype;
+	int ret, line;
+
+	memset(&uart, 0, sizeof(uart));
+	regs = platform_get_resource(pdev, IORESOURCE_IO, 0);
+	if (regs) {
+		uart.port.iobase = regs->start;
+		iotype = UPIO_PORT;
+	} else {
+		regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		if (!regs) {
+			dev_err(dev, "no registers defined\n");
+			return -EINVAL;
+		}
+
+		uart.port.mapbase = regs->start;
+		uart.port.mapsize = resource_size(regs);
+		uart.port.flags = UPF_IOREMAP;
+		iotype = UPIO_MEM;
+	}
+
+	uart.port.uartclk = 1843200; // default
+	uart.port.type = PORT_16550A;
+	uart.port.dev = &pdev->dev;
+	uart.port.flags |= UPF_SKIP_TEST | UPF_BOOT_AUTOCONF;
+	ret = uart_read_and_validate_port_properties(&uart.port);
+	/* no interrupt -> fall back to polling */
+	if (ret == -ENXIO)
+		ret = 0;
+	if (ret)
+		return ret;
+
+	if (uart.port.mapbase) {
+		uart.port.membase = devm_ioremap(dev, uart.port.mapbase, uart.port.mapsize);
+		if (!uart.port.membase)
+			return -ENOMEM;
+	}
+
+	/*
+	 * The previous call may not set iotype correctly when reg-io-width
+	 * property is absent and it doesn't support IO port resource.
+	 */
+	uart.port.iotype = iotype;
+
+	line = serial8250_register_8250_port(&uart);
+	if (line < 0)
+		return -ENODEV;
+
+	platform_set_drvdata(pdev, (void *)((long)line + 1));
+	return 0;
+}
+
+static int serial8250_probe(struct platform_device *pdev)
+{
+	/*
+	 * Legacy ISA devices are created with name "serial8250". Use
+	 * this information to probe either ISA or platform devices.
+	 */
+	if (!strncmp(pdev->name, "serial8250", strlen("serial8250")))
+		return serial8250_isa_probe(pdev);
+
+	return serial8250_platform_probe(pdev);
+}
+
+/*
  * Remove serial ports registered against a platform device.
  */
 static void serial8250_remove(struct platform_device *dev)
@@ -200,6 +273,13 @@ static int serial8250_resume(struct platform_device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_ACPI
+static const struct acpi_device_id acpi_platform_serial_table[] = {
+	{ },
+};
+MODULE_DEVICE_TABLE(acpi, acpi_platform_serial_table);
+#endif
+
 static struct platform_driver serial8250_isa_driver = {
 	.probe		= serial8250_probe,
 	.remove_new	= serial8250_remove,
@@ -207,6 +287,7 @@ static struct platform_driver serial8250_isa_driver = {
 	.resume		= serial8250_resume,
 	.driver		= {
 		.name	= "serial8250",
+		.acpi_match_table = ACPI_PTR(acpi_platform_serial_table),
 	},
 };
 
