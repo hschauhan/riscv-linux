@@ -275,6 +275,7 @@ static int serial8250_resume(struct platform_device *dev)
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id acpi_platform_serial_table[] = {
+	{ "RSCV0003", 0 }, // RISC-V Generic 16550A UART
 	{ },
 };
 MODULE_DEVICE_TABLE(acpi, acpi_platform_serial_table);
