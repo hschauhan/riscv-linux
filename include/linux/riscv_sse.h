@@ -59,10 +59,6 @@ int sse_event_set_target_cpu(struct sse_event *sse_evt, unsigned int cpu);
 int sse_event_enable(struct sse_event *sse_evt);
 
 void sse_event_disable(struct sse_event *sse_evt);
-
-int sse_register_ghes(struct ghes *ghes, sse_event_handler *lo_cb,
-		      sse_event_handler *hi_cb);
-int sse_unregister_ghes(struct ghes *ghes);
 #else
 static inline int sse_event_register(struct sse_event *evt, u32 priority,
 				     sse_event_handler *handler, void *arg)
@@ -84,18 +80,6 @@ static inline int sse_event_enable(struct sse_event *sse_evt)
 }
 
 static inline void sse_event_disable(struct sse_event *sse_evt) {}
-
-
-int sse_register_ghes(struct ghes *ghes, sse_event_handler *lo_cb,
-		      sse_event_handler *hi_cb)
-{
-	return -EOPNOTSUPP;
-}
-
-int sse_unregister_ghes(struct ghes *ghes)
-{
-	return -EOPNOTSUPP;
-}
 
 #endif
 

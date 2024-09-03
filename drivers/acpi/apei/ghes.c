@@ -51,6 +51,7 @@
 #include <acpi/apei.h>
 #include <asm/fixmap.h>
 #include <asm/tlbflush.h>
+#include <asm/sse_ghes.h>
 #include <ras/ras_event.h>
 
 #include "apei-internal.h"
@@ -1453,10 +1454,12 @@ static int ghes_sse_hi_callback(u32 event_num, void *arg, struct pt_regs *regs)
 	return err;
 }
 
-static int apei_sse_register_ghes(struct ghes *ghes)
+static int apei_sse_register_ghes(struct ghes *ghes, u8 is_hart)
 {
-	return sse_register_ghes(ghes, ghes_sse_lo_callback,
-				 ghes_sse_hi_callback);
+	if (is_hart)
+		return sse_register_hart_ghes(ghes, ghes_sse_lo_callback, ghes_sse_hi_callback);
+	else
+		return sse_register_device_ghes(ghes, ghes_sse_lo_callback, ghes_sse_hi_callback);
 }
 
 static int apei_sse_unregister_ghes(struct ghes *ghes)
@@ -1588,7 +1591,7 @@ static int ghes_probe(struct platform_device *ghes_dev)
 		break;
 
 	case ACPI_HEST_NOTIFY_SSE:
-		rc = apei_sse_register_ghes(ghes);
+		rc = apei_sse_register_ghes(ghes, 1);
 		if (rc) {
 			pr_err(GHES_PFX "Failed to register for SSE notification"
 			       " on vector %d\n",
